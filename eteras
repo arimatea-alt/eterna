@@ -1,0 +1,461 @@
+print("Auto Ethernal Lv.90 (Final Combo)")
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+
+---------------- CONFIG ----------------
+
+local LIVES_FOLDER_NAME = "Lives"
+local BOSS_NAME = "Ethernal Lv.90"
+local FOLLOW_DISTANCE = 5
+local TOOL_NAME = "Attack"
+
+local TRIAL_REMOTE = ReplicatedStorage:WaitForChild("Remote"):WaitForChild("Event"):WaitForChild("RiderTrial")
+
+---------------- HELPERS ----------------
+
+local function getLivesFolder()
+    return Workspace:FindFirstChild(LIVES_FOLDER_NAME)
+end
+
+local function isBossPresent()
+    local lives = getLivesFolder()
+    return lives and lives:FindFirstChild(BOSS_NAME) ~= nil
+end
+
+local function getBossModel()
+    local lives = getLivesFolder()
+    if not lives then return nil end
+    return lives:FindFirstChild(BOSS_NAME)
+end
+
+local function getCharacter()
+    return player.Character or player.CharacterAdded:Wait()
+end
+
+---------------- AUTO EQUIP ATTACK TOOL ----------------
+
+local function equipAttackTool()
+    local character = getCharacter()
+    local humanoid = character:WaitForChild("Humanoid")
+    local backpack = player:WaitForChild("Backpack")
+    local tool = backpack:FindFirstChild(TOOL_NAME)
+    if tool and tool:IsA("Tool") then
+        humanoid:EquipTool(tool)
+        StarterGui:SetCore("SendNotification", {Title = "Attack", Text = "Tool Equipped", Duration = 2})
+    end
+end
+
+---------------- HANDLER / HENSHIN ----------------
+
+local function getHandlerEvent()
+    local character = player.Character
+    if not character or not character.Parent then return nil end
+
+    local ok, result = pcall(function()
+        local handler = character:WaitForChild("PlayerHandler", 3)
+        if not handler then return nil end
+        return handler:WaitForChild("HandlerEvent", 3)
+    end)
+
+    return ok and result or nil
+end
+
+local function autoHenshin()
+    local handlerEvent = getHandlerEvent()
+    if not handlerEvent then return false end
+
+    local success = pcall(function()
+        local args = { { Henshin = true } }
+        handlerEvent:FireServer(unpack(args))
+    end)
+
+    if success then
+        StarterGui:SetCore("SendNotification", {Title = "Henshin", Text = "EXECUTED!", Duration = 2})
+        return true
+    end
+    return false
+end
+
+---------------- ATTACK (COMBO SESUAI ALUR) ----------------
+
+local MOUSE_CFRAME_HEAVY = CFrame.new(5210.27587890625, 12.46822738647461, 5193.71533203125, 1,0,0, 0,1,0, 0,0,1)
+local MOUSE_CFRAME_E_R   = CFrame.new(-909.2787, 4.308962, -633.63837, 1,0,0, 0,1,0, 0,0,1)
+local MOUSE_CFRAME_V     = CFrame.new(-1177.9902, 25.99979, -232.17046, 1,0,0, 0,1,0, 0,0,1)
+
+local function fireHeavyAttack()
+    local handlerEvent = getHandlerEvent()
+    if not handlerEvent then return end
+    local args = {{
+        CombatAction = true,
+        AttackType = "Down",
+        HeavyAttack = true,
+        MouseData = MOUSE_CFRAME_HEAVY
+    }}
+    handlerEvent:FireServer(unpack(args))
+end
+
+local function fireSkill(key, mouseCF)
+    local handlerEvent = getHandlerEvent()
+    if not handlerEvent then return end
+    local args = {{
+        Skill = true,
+        AttackType = "Down",
+        Key = key,
+        MouseData = mouseCF
+    }}
+    handlerEvent:FireServer(unpack(args))
+end
+
+local comboRunning = false
+
+local function startCombo()
+    if comboRunning then return end
+    comboRunning = true
+
+    task.spawn(function()
+        task.wait(0.5) -- kasih waktu handler & tool ready
+
+        while comboRunning and isBossPresent() do
+            -- 1) Heavy x2 (delay 1s)
+            fireHeavyAttack()
+            task.wait(1)
+            if not comboRunning or not isBossPresent() then break end
+            fireHeavyAttack()
+            task.wait(1)
+            if not comboRunning or not isBossPresent() then break end
+
+            -- 2) (E+R) x2
+            for i = 1,2 do
+                fireSkill("E", MOUSE_CFRAME_E_R)
+                fireSkill("R", MOUSE_CFRAME_E_R)
+                task.wait(1)
+                if not comboRunning or not isBossPresent() then break end
+            end
+            if not comboRunning or not isBossPresent() then break end
+
+            -- 3) Heavy x2 lagi
+            fireHeavyAttack()
+            task.wait(1)
+            if not comboRunning or not isBossPresent() then break end
+            fireHeavyAttack()
+            task.wait(1)
+            if not comboRunning or not isBossPresent() then break end
+
+            -- 4) V sekali + delay 7.5s
+            fireSkill("V", MOUSE_CFRAME_V)
+            local t = 0
+            while t < 7.5 and comboRunning and isBossPresent() do
+                task.wait(0.5)
+                t += 0.5
+            end
+        end
+
+        comboRunning = false
+    end)
+end
+
+local function stopCombo()
+    comboRunning = false
+end
+
+---------------- FOLLOW BOSS (TWEEN LOOP, JARAK 5 DEPAN) ----------------
+
+local followRunning = false
+
+local function startFollowBoss()
+    if followRunning then return end
+    followRunning = true
+
+    task.spawn(function()
+        while followRunning and isBossPresent() do
+            local boss = getBossModel()
+            local character = player.Character
+            if boss and character and character:FindFirstChild("HumanoidRootPart") then
+                local hrp = character.HumanoidRootPart
+                local bossRoot = boss:FindFirstChild("HumanoidRootPart") or boss.PrimaryPart
+
+                if bossRoot then
+                    local bossPos = bossRoot.Position
+                    local playerPos = hrp.Position
+                    local dir = (playerPos - bossPos)
+                    if dir.Magnitude < 1 then
+                        dir = bossRoot.CFrame.LookVector
+                    end
+                    local unit = dir.Unit
+                    local targetPos = bossPos + unit * FOLLOW_DISTANCE
+
+                    local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos, bossPos)})
+                    tween:Play()
+                end
+            end
+            task.wait(0.4)
+        end
+        followRunning = false
+    end)
+end
+
+local function stopFollowBoss()
+    followRunning = false
+end
+
+---------------- TRIAL FLOW ----------------
+
+local firstRun = true
+
+local function startTrial()
+    TRIAL_REMOTE:FireServer("Trial of Ethernal")
+end
+
+local function firstTrialSequence()
+    task.wait(2)
+    autoHenshin()
+    task.wait(0.5)
+    equipAttackTool()
+    task.wait(0.5)
+end
+
+local function respawnSequenceNoHenshin()
+    task.wait(3)
+    equipAttackTool()
+    task.wait(0.5)
+end
+
+---------------- GUI (1 TOGGLE + MINIMIZE) ----------------
+
+local autoLoopEnabled = false
+local mainLoopThread
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "AutoEthernalGUI"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(280, 170)
+frame.Position = UDim2.new(0, 20, 0.5, -85)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+frame.BorderSizePixel = 0
+frame.Parent = gui
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 12)
+frameCorner.Parent = frame
+
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(45,45,55)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(25,25,30))
+}
+gradient.Rotation = 45
+gradient.Parent = frame
+
+local dragHandle = Instance.new("Frame")
+dragHandle.Size = UDim2.new(1, 0, 0, 40)
+dragHandle.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+dragHandle.BorderSizePixel = 0
+dragHandle.Parent = frame
+local dragCorner = Instance.new("UICorner")
+dragCorner.CornerRadius = UDim.new(0, 12)
+dragCorner.Parent = dragHandle
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -60, 1, 0)
+title.Position = UDim2.new(0, 15, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "AUTO ETHERNAL"
+title.TextColor3 = Color3.fromRGB(0, 255, 150)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = dragHandle
+
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 24, 0, 24)
+minimizeBtn.Position = UDim2.new(1, -34, 0.5, -12)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeBtn.Text = "-"
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 18
+minimizeBtn.Parent = dragHandle
+local minimizeCorner = Instance.new("UICorner")
+minimizeCorner.CornerRadius = UDim.new(1, 0)
+minimizeCorner.Parent = minimizeBtn
+
+local floatButton = Instance.new("TextButton")
+floatButton.Name = "EthernalFloat"
+floatButton.Size = UDim2.fromOffset(48, 48)
+floatButton.Position = UDim2.new(0, 10, 0.5, -24)
+floatButton.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+floatButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+floatButton.Text = "AE"
+floatButton.Font = Enum.Font.GothamBold
+floatButton.TextSize = 16
+floatButton.Visible = false
+floatButton.Parent = gui
+local floatCorner = Instance.new("UICorner")
+floatCorner.CornerRadius = UDim.new(1, 0)
+floatCorner.Parent = floatButton
+
+local autoLoopBtn = Instance.new("TextButton")
+autoLoopBtn.Size = UDim2.new(1, -20, 0, 50)
+autoLoopBtn.Position = UDim2.fromOffset(10, 55)
+autoLoopBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+autoLoopBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+autoLoopBtn.Text = "AUTO LOOP: OFF"
+autoLoopBtn.Font = Enum.Font.GothamBold
+autoLoopBtn.TextSize = 16
+autoLoopBtn.Parent = frame
+local loopCorner = Instance.new("UICorner")
+loopCorner.CornerRadius = UDim.new(0, 10)
+loopCorner.Parent = autoLoopBtn
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.fromOffset(10, 115)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Boss: waiting..."
+statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 13
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = frame
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    frame.Visible = false
+    floatButton.Visible = true
+end)
+
+floatButton.MouseButton1Click:Connect(function()
+    frame.Visible = true
+    floatButton.Visible = false
+end)
+
+-- Draggable
+local function makeDraggable(obj, dragInputObj)
+    local dragging = false
+    local dragStart, startPos
+
+    dragInputObj.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = obj.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            obj.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+makeDraggable(frame, dragHandle)
+makeDraggable(floatButton, floatButton)
+
+---------------- AUTO LOOP ----------------
+
+local function updateBossStatusLabel()
+    if isBossPresent() then
+        statusLabel.Text = "[LIVE] Boss: "..BOSS_NAME
+        statusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    else
+        statusLabel.Text = "[DEAD] Boss: "..BOSS_NAME
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    end
+end
+
+local function autoLoop()
+    while autoLoopEnabled do
+        statusLabel.Text = "Status: mulai trial..."
+        startTrial()
+        if firstRun then
+            firstRun = false
+            firstTrialSequence()   -- henshin + equip Attack
+        else
+            respawnSequenceNoHenshin() -- cuma equip Attack
+        end
+
+        statusLabel.Text = "Status: tunggu boss spawn"
+        local lives = getLivesFolder()
+        if lives then
+            while autoLoopEnabled and not isBossPresent() do
+                lives.ChildAdded:Wait()
+            end
+        end
+        if not autoLoopEnabled then break end
+
+        updateBossStatusLabel()
+
+        startFollowBoss()
+        startCombo()
+
+        local lives2 = getLivesFolder()
+        if lives2 then
+            while autoLoopEnabled and isBossPresent() do
+                lives2.ChildRemoved:Wait()
+            end
+        end
+
+        stopFollowBoss()
+        stopCombo()
+        updateBossStatusLabel()
+
+        if not autoLoopEnabled then break end
+
+        statusLabel.Text = "Status: delay 10s sebelum trial berikut"
+        for i = 1,10 do
+            if not autoLoopEnabled then break end
+            task.wait(1)
+        end
+    end
+
+    statusLabel.Text = "Boss: waiting..."
+end
+
+autoLoopBtn.MouseButton1Click:Connect(function()
+    autoLoopEnabled = not autoLoopEnabled
+    if autoLoopEnabled then
+        autoLoopBtn.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+        autoLoopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        autoLoopBtn.Text = "AUTO LOOP: ON"
+        if not mainLoopThread or coroutine.status(mainLoopThread) == "dead" then
+            mainLoopThread = coroutine.create(autoLoop)
+            coroutine.resume(mainLoopThread)
+        end
+        StarterGui:SetCore("SendNotification", {Title = "Auto Ethernal", Text = "ON (henshin + auto Attack + full combo)", Duration = 3})
+    else
+        autoLoopBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+        autoLoopBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+        autoLoopBtn.Text = "AUTO LOOP: OFF"
+        stopFollowBoss()
+        stopCombo()
+        StarterGui:SetCore("SendNotification", {Title = "Auto Ethernal", Text = "OFF", Duration = 2})
+    end
+end)
+
+updateBossStatusLabel()
+
+print("✅ Auto Ethernal Lv.90 (final combo, heavy CFrame baru) loaded.")
