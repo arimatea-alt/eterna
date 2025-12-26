@@ -1,189 +1,371 @@
-print("Auto Ethernal Lv.90 (Auto Trial + Simple GUI)")
+--[[ 
+AUTO DRAGON + GUI TOGGLE & SLIDER DELAY
+- Toggle ON/OFF auto quest
+- Slider atur delay (0–10 detik) setelah klik NPC quest sebelum turn-in
+]]
 
-local Players = game:GetService("Players")
+--=====================================================
+-- SERVICES & PLAYER
+--=====================================================
+local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
+local UserInputService  = game:GetService("UserInputService")
+local player            = Players.LocalPlayer
 
-local player = Players.LocalPlayer
-local TRIAL_REMOTE = ReplicatedStorage:WaitForChild("Remote"):WaitForChild("Event"):WaitForChild("RiderTrial")
+--=====================================================
+-- KONFIG DATA AUTO FARM (SESUAI VERSI DRAGON / YUI)
+--=====================================================
 
--------------------------------------------------
--- STATE
--------------------------------------------------
+local QuestClick     = workspace.NPC.Yui.ClickDetector          -- ClickDetector quest [web:59]
+local DialogueRemote = ReplicatedStorage.Remote.Event.Dialogue  -- Remote dialog [web:58]
+local livesFolder    = workspace:WaitForChild("Lives")
 
-local autoTrialEnabled = false
-local loopThread
+local TARGET_NAMES = {
+    "Dragon User Lv.7",
+    "Crab User Lv.10",
+    "Bat User Lv.12"
+}
 
--------------------------------------------------
--- AUTO TRIAL LOOP
--------------------------------------------------
+local ATK_DELAY   = 0.3       -- delay antar serangan dalam combo
+local LOOP_DELAY  = 0.5       -- delay kecil di akhir combo
+local QuestDelay  = 2         -- default delay sebelum finish quest (bisa diubah slider)
 
-local function autoTrialLoop()
-    while autoTrialEnabled do
-        -- kirim request trial
-        TRIAL_REMOTE:FireServer("Trial of Ethernal")
-        -- delay 10 detik sebelum request lagi
-        for i = 1,10 do
-            if not autoTrialEnabled then
-                break
-            end
-            task.wait(1)
-        end
+local running     = false     -- dikontrol toggle GUI
+
+--=====================================================
+-- FUNGSI UTILITAS & COMBAT
+--=====================================================
+
+local function getCharacter()
+    local char = player.Character or player.CharacterAdded:Wait()
+    char:WaitForChild("HumanoidRootPart")
+    char:WaitForChild("Humanoid")
+    return char
+end
+
+local function isTargetAlive(model)
+    if not model or not model.Parent then return false end
+    local hum = model:FindFirstChildOfClass("Humanoid")
+    return hum and hum.Health > 0
+end
+
+local function getTargetByName(name)
+    local model = livesFolder:FindFirstChild(name)
+    if model and model:FindFirstChild("HumanoidRootPart") then
+        return model
+    end
+    return nil
+end
+
+local function magnetToTarget(model)
+    local char = getCharacter()
+    local hrp  = char.HumanoidRootPart
+    local root = model:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local DIST = 5
+    local targetPos = root.Position - root.CFrame.LookVector * DIST
+    hrp.CFrame = CFrame.new(targetPos, root.Position)
+end
+
+local function clickQuestNPC()
+    pcall(function()
+        fireclickdetector(QuestClick)  -- fungsi dari executor [web:56][web:48]
+    end)
+end
+
+local function startQuest()
+    local args = {
+        {
+            Choice = "Start 'Dragon's Alliance'"
+        }
+    }
+    DialogueRemote:FireServer(unpack(args))
+end
+
+local function finishQuest()
+    local args = {
+        {
+            Choice = "Yes, I've completed it."
+        }
+    }
+    DialogueRemote:FireServer(unpack(args))
+end
+
+local function fireHandler(argsTbl)
+    local char = getCharacter()
+    local handler = char:WaitForChild("PlayerHandler"):WaitForChild("HandlerEvent")
+    handler:FireServer(unpack(argsTbl))
+end
+
+local function heavyAttack()
+    fireHandler({
+        {
+            CombatAction = true,
+            AttackType   = "Down",
+            HeavyAttack  = true,
+            MouseData    = CFrame.new(952.8143310546875, 9.958056449890137, -782.230224609375, 1,0,0,0,1,0,0,0,1)
+        }
+    })
+end
+
+local function skillE()
+    fireHandler({
+        {
+            Skill      = true,
+            AttackType = "Down",
+            Key        = "E",
+            MouseData  = CFrame.new(897.6565551757812, 9.958056449890137, -819.73095703125, 1,0,0,0,1,0,0,0,1)
+        }
+    })
+end
+
+local function skillR()
+    fireHandler({
+        {
+            Skill      = true,
+            AttackType = "Down",
+            Key        = "R",
+            MouseData  = CFrame.new(864.8584594726562, 9.983565330505371, -801.572509765625, 1,0,0,0,1,0,0,0,1)
+        }
+    })
+end
+
+local function basicAttack()
+    fireHandler({
+        {
+            CombatAction = true,
+            LightAttack  = true,
+            MouseData    = CFrame.new(835.795654296875, 9.983271598815918, -785.448974609375, 1,0,0,0,1,0,0,0,1)
+        }
+    })
+end
+
+local function attackComboOnTarget(targetModel)
+    while running and isTargetAlive(targetModel) do
+        magnetToTarget(targetModel)
+
+        heavyAttack()
+        task.wait(ATK_DELAY)
+
+        skillE()
+        task.wait(ATK_DELAY)
+
+        heavyAttack()
+        task.wait(ATK_DELAY)
+
+        basicAttack()
+        task.wait(ATK_DELAY)
+
+        skillR()
+        task.wait(LOOP_DELAY)
     end
 end
 
--------------------------------------------------
--- SIMPLE GUI
--------------------------------------------------
+--=====================================================
+-- MAIN AUTO LOOP (PAKAI running & QuestDelay)
+--=====================================================
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "AutoEthernalTrialGUI"
-gui.ResetOnSpawn = false
-gui.Parent = player:WaitForChild("PlayerGui")
+task.spawn(function()
+    print("[AUTO DRAGON GUI] LOOP READY")
+    while true do
+        if running then
+            print("[AUTO DRAGON GUI] START CYCLE")
+
+            -- 1. Klik NPC quest + ambil quest
+            clickQuestNPC()
+            task.wait(0.5)
+            startQuest()
+            task.wait(1)
+
+            -- 2. Kill 3 target berurutan
+            for _, name in ipairs(TARGET_NAMES) do
+                if not running then break end
+
+                local target
+                local t0 = tick()
+                repeat
+                    target = getTargetByName(name)
+                    task.wait(0.3)
+                until not running or target or tick() - t0 > 15
+
+                if running and target and isTargetAlive(target) then
+                    attackComboOnTarget(target)
+                else
+                    print("[AUTO DRAGON GUI] Target tidak ditemukan / sudah mati:", name)
+                end
+            end
+
+            if running then
+                -- 3. Klik NPC lagi, tunggu QuestDelay detik, baru finish quest
+                clickQuestNPC()
+                task.wait(0.5)
+                task.wait(QuestDelay)
+                finishQuest()
+                print("[AUTO DRAGON GUI] Satu siklus selesai (delay "..QuestDelay.."s), ulang...")
+                task.wait(2)
+            end
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+--=====================================================
+-- SIMPLE GUI: TOGGLE + SLIDER DELAY
+--=====================================================
+
+local playerGui = player:WaitForChild("PlayerGui")
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "DragonAutoGUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(260, 110)
-frame.Position = UDim2.new(0, 20, 0.5, -55)
-frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+frame.Size = UDim2.new(0, 260, 0, 120)
+frame.Position = UDim2.new(0, 50, 0, 200)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 frame.BorderSizePixel = 0
-frame.Parent = gui
+frame.Parent = screenGui
 
-local frameCorner = Instance.new("UICorner")
-frameCorner.CornerRadius = UDim.new(0, 10)
-frameCorner.Parent = frame
-
-local topBar = Instance.new("Frame")
-topBar.Size = UDim2.new(1, 0, 0, 32)
-topBar.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-topBar.BorderSizePixel = 0
-topBar.Parent = frame
-
-local topCorner = Instance.new("UICorner")
-topCorner.CornerRadius = UDim.new(0, 10)
-topCorner.Parent = topBar
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 6)
+uiCorner.Parent = frame
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -60, 1, 0)
-title.Position = UDim2.new(0, 10, 0, 0)
+title.Size = UDim2.new(1, -10, 0, 24)
+title.Position = UDim2.new(0, 5, 0, 4)
 title.BackgroundTransparency = 1
-title.Text = "AUTO TRIAL ETHERNAL"
+title.Text = "Dragon Auto Farm"
 title.Font = Enum.Font.GothamBold
 title.TextSize = 16
-title.TextColor3 = Color3.fromRGB(0, 255, 150)
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = topBar
+title.Parent = frame
 
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 24, 0, 24)
-closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
-closeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-closeBtn.Text = "X"
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 16
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.Parent = topBar
-
-local closeCorner = Instance.new("UICorner")
-closeCorner.CornerRadius = UDim.new(1, 0)
-closeCorner.Parent = closeBtn
-
+-- Toggle button
 local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(1, -20, 0, 44)
-toggleBtn.Position = UDim2.fromOffset(10, 42)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
-toggleBtn.Text = "AUTO TRIAL: OFF"
+toggleBtn.Size = UDim2.new(0, 80, 0, 28)
+toggleBtn.Position = UDim2.new(0, 10, 0, 40)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+toggleBtn.Text = "OFF"
 toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 16
-toggleBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+toggleBtn.TextSize = 14
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleBtn.Parent = frame
 
 local toggleCorner = Instance.new("UICorner")
-toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.CornerRadius = UDim.new(0, 6)
 toggleCorner.Parent = toggleBtn
 
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, -20, 0, 20)
-statusLabel.Position = UDim2.fromOffset(10, 88)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 13
-statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.Text = "Status: idle"
-statusLabel.Parent = frame
+-- Label delay
+local delayLabel = Instance.new("TextLabel")
+delayLabel.Size = UDim2.new(0, 150, 0, 20)
+delayLabel.Position = UDim2.new(0, 10, 0, 76)
+delayLabel.BackgroundTransparency = 1
+delayLabel.Font = Enum.Font.Gotham
+delayLabel.TextSize = 14
+delayLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+delayLabel.TextXAlignment = Enum.TextXAlignment.Left
+delayLabel.Text = "Quest delay: "..QuestDelay.."s"
+delayLabel.Parent = frame
 
--------------------------------------------------
--- DRAGGABLE TOPBAR
--------------------------------------------------
+-- Slider bar
+local sliderBar = Instance.new("Frame")
+sliderBar.Size = UDim2.new(0, 140, 0, 6)
+sliderBar.Position = UDim2.new(0, 10, 0, 100)
+sliderBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+sliderBar.BorderSizePixel = 0
+sliderBar.Parent = frame
 
-local UserInputService = game:GetService("UserInputService")
-local dragging, dragStart, startPos
+local sliderBarCorner = Instance.new("UICorner")
+sliderBarCorner.CornerRadius = UDim.new(1, 0)
+sliderBarCorner.Parent = sliderBar
 
-topBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = frame.Position
+-- Slider knob
+local slider = Instance.new("Frame")
+slider.Size = UDim2.new(0, 12, 0, 12)
+slider.Position = UDim2.new(0, 0, 0, -3)
+slider.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+slider.BorderSizePixel = 0
+slider.Parent = sliderBar
 
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(1, 0)
+sliderCorner.Parent = slider
+
+-- Hitbox untuk drag slider
+local sliderButton = Instance.new("TextButton")
+sliderButton.Size = UDim2.new(1, 0, 3, 0)
+sliderButton.Position = UDim2.new(0, 0, -1, -6)
+sliderButton.BackgroundTransparency = 1
+sliderButton.Text = ""
+sliderButton.Parent = sliderBar
+
+--=====================================================
+-- LOGIC TOGGLE
+--=====================================================
+
+local function updateToggleVisual()
+    if running then
+        toggleBtn.Text = "ON"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 80)
+    else
+        toggleBtn.Text = "OFF"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
     end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        frame.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
--------------------------------------------------
--- BUTTON LOGIC
--------------------------------------------------
+end
 
 toggleBtn.MouseButton1Click:Connect(function()
-    autoTrialEnabled = not autoTrialEnabled
+    running = not running
+    updateToggleVisual()
+end)
 
-    if autoTrialEnabled then
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        toggleBtn.Text = "AUTO TRIAL: ON"
-        statusLabel.Text = "Status: mengirim trial tiap 10 detik"
-        if not loopThread or coroutine.status(loopThread) == "dead" then
-            loopThread = coroutine.create(autoTrialLoop)
-            coroutine.resume(loopThread)
-        end
-        StarterGui:SetCore("SendNotification", {
-            Title = "Auto Ethernal";
-            Text = "Auto Trial ON (10s loop)";
-            Duration = 3;
-        })
-    else
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
-        toggleBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
-        toggleBtn.Text = "AUTO TRIAL: OFF"
-        statusLabel.Text = "Status: idle"
-        StarterGui:SetCore("SendNotification", {
-            Title = "Auto Ethernal";
-            Text = "Auto Trial OFF";
-            Duration = 2;
-        })
+updateToggleVisual()
+
+--=====================================================
+-- LOGIC SLIDER (0–10 detik)
+--=====================================================
+
+local dragging = false
+
+local function setSliderFromX(x)
+    local barAbsPos = sliderBar.AbsolutePosition.X
+    local barWidth  = sliderBar.AbsoluteSize.X
+    local rel = math.clamp(x - barAbsPos, 0, barWidth)
+
+    slider.Position = UDim2.new(0, rel - slider.AbsoluteSize.X/2, 0, -3)
+
+    -- map 0..barWidth -> 0..10 detik [web:181]
+    local t = rel / barWidth
+    QuestDelay = math.floor(t * 10 + 0.5)
+    delayLabel.Text = "Quest delay: "..QuestDelay.."s"
+end
+
+sliderButton.MouseButton1Down:Connect(function(input)
+    dragging = true
+    setSliderFromX(input.Position.X)
+end)
+
+UserInputService.InputChanged:Connect(function(input, gp)
+    if not gp and dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        setSliderFromX(input.Position.X)
     end
 end)
 
-closeBtn.MouseButton1Click:Connect(function()
-    autoTrialEnabled = false
-    gui:Destroy()
+UserInputService.InputEnded:Connect(function(input, gp)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
 end)
 
-print("✅ Auto Ethernal Lv.90 (auto trial + simple GUI) loaded.")
+-- Set posisi awal slider sesuai QuestDelay default
+local function initSlider()
+    local barWidth = sliderBar.AbsoluteSize.X
+    local rel = (QuestDelay / 10) * barWidth
+    slider.Position = UDim2.new(0, rel - slider.AbsoluteSize.X/2, 0, -3)
+    delayLabel.Text = "Quest delay: "..QuestDelay.."s"
+end
+
+task.defer(initSlider)
